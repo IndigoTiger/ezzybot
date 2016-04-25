@@ -8,6 +8,6 @@ setup(name='ezzybot',
       author_email='me@lukej.me',
       license='GNU',
       packages=find_packages(),
-      install_requires=['thingdb', 'pysocks', 'requests'],
+      install_requires=['thingdb', 'pysocks', 'requests', 'ecdsa'],
       include_package_data=True,
       zip_safe=False)
