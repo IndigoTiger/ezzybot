@@ -176,10 +176,7 @@ class bot(object):
         while True:
             for line in self.printrecv():
                 line = line.split()
-                if line[0] == "CAP":
-                    if line[2] == "ACK" and "sasl" in line[3]:
-                        self.send("AUTHENTICATE {0}".format(self.config_sasl.upper()))
-                elif line[0] == "AUTHENTICATE":
+                if line[0] == "AUTHENTICATE":
                     if line[1] == "+":
                         if self.config_sasl.upper() == "PLAIN":
                             saslstring = b64encode("{0}\x00{0}\x00{1}".format(self.config_auth_user,
@@ -195,6 +192,9 @@ class bot(object):
                         challenge = b64decode(line[1])
                         saslstring = b64encode(privatekey.sign(challenge))
                         self.send("AUTHENTICATE {0}".format(saslstring.decode("UTF-8")))
+                elif line[1] == "CAP":
+                    if line[3] == "ACK" and "sasl" in line[4]:
+                        self.send("AUTHENTICATE {0}".format(self.config_sasl.upper()))
                 elif line[1] == "903":
                     return True
                 elif line[1] == "904" or line[1] == "905":
