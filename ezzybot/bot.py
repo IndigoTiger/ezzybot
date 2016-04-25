@@ -1,11 +1,11 @@
 #EzzyBot 2016
 #Created by zz & BWBellairs & IndigoTiger (freenode @ #ezzybot)
-import socks, re, traceback, time, socket, os, glob, importlib, requests, pkg_resources, json, sys
+import socks, re, traceback, time, socket, os, glob, importlib, requests, pkg_resources, json, sys, ecdsa
 import ssl as securesl
 from . import logging, wrappers, limit, builtin
 from time import sleep
 from threading import Thread
-from base64 import b64encode
+from base64 import b64encode, b64decode
 from .util import hook, colours, repl, other
 #from importlib import reload
 
@@ -164,21 +164,41 @@ class bot(object):
             for line in str(e).split("\n"):
                 self.log.error(line)
 
-    def confirmsasl(self):
-        """confirmsasl()
+    def saslauth(self):
+        """saslauth()
 
-        Waits until SASL has succeeded or not.
+        Handles SASL authentication.
 
         Returns:
-            bool -- Weather SASL has succeeded or not.
+            bool -- True if SASL auth was successful, False if SASL auth failed
         """
+        self.send("CAP REQ :sasl")
         while True:
-            received = " ".join(self.printrecv())
-            auth_msgs = [":SASL authentication successful", ":SASL authentication failed", ":SASL authentication aborted"]
-            if auth_msgs[0] in received:
-                return True
-            elif auth_msgs[1] in received or auth_msgs[2] in received:
-                return False
+            for line in self.printrecv():
+                line = line.split()
+                if line[0] == "CAP":
+                    if line[2] == "ACK" and "sasl" in line[3]:
+                        self.send("AUTHENTICATE {0}".format(self.config_sasl.upper()))
+                elif line[0] == "AUTHENTICATE":
+                    if line[1] == "+":
+                        if self.config_sasl.upper() == "PLAIN":
+                            saslstring = b64encode("{0}\x00{0}\x00{1}".format(self.config_auth_user,
+                                                   self.config_auth_pass).encode("UTF-8"))
+                            self.send("AUTHENTICATE {0}".format(saslstring.decode("UTF-8")))
+                        elif self.config_sasl.upper() == "ECDSA-NIST256P-CHALLENGE":
+                            saslstring = b64encode(self.config_auth_user.encode("UTF-8"))
+                            self.send("AUTHENTICATE {0}".format(saslstring.decode("UTF-8")))
+                    elif self.config_sasl.upper() == "ECDSA-NIST256P-CHALLENGE":
+                        with open(self.config_ecdsa_key) as keyfile:
+                            privatekey = ecdsa.SigningKey.from_pem(keyfile.read())
+                            keyfile.close()
+                        challenge = b64decode(line[1])
+                        saslstring = b64encode(privatekey.sign(challenge))
+                        self.send("AUTHENTICATE {0}".format(saslstring.decode("UTF-8")))
+                elif line[1] == "903":
+                    return True
+                elif line[1] == "904" or line[1] == "905":
+                    return False
 
     def loop(self):
         while True:
@@ -288,6 +308,7 @@ class bot(object):
         self.config_do_auth = config.get("do_auth") or False
         self.config_auth_pass = config.get("auth_pass") or None
         self.config_auth_user = config.get("auth_user") or None
+        self.config_ecdsa_key = config.get("ecdsa_key") or None
         self.config_nick = config.get("nick") or "EzzyBot"
         self.config_ident = config.get("ident") or "EzzyBot"
         self.config_realname = config.get("realname") or "EzzyBot: a simple python framework for IRC bots."
@@ -353,14 +374,7 @@ class bot(object):
             self.send("PASS "+self.config_pass)
             self.printrecv()
         if self.config_sasl:
-            saslstring = b64encode("{0}\x00{0}\x00{1}".format(
-                            self.config_auth_user, self.config_auth_pass).encode("UTF-8"))
-            saslstring = saslstring.decode("UTF-8")
-            self.send("CAP REQ :sasl")
-            self.send("AUTHENTICATE PLAIN")
-            self.send("AUTHENTICATE {0}".format(saslstring))
-            authed = self.confirmsasl()
-            #authed = True
+            authed = self.saslauth()
             if authed:
                 self.send("CAP END")
                 self.send("NICK {0}".format(self.config_nick))
